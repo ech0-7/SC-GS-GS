@@ -1,0 +1,44 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: SC-GS",//环境是名字直接自己执行的
+            "type": "debugpy",
+            "request": "launch",
+            "program": "train_gui.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--source_path", "dataset/jumpingjacks",
+                "--model_path", "outputs/jumpingjacktest",
+                "--deform_type", "node",
+                "--node_num", "512",
+                "--is_blender",
+                "--eval",
+                "--gt_alpha_mask_as_scene_mask",
+                "--local_frame",
+                "--resolution", "2",
+                "--W", "800",
+                "--H", "800"
+            ],            
+            "cwd": "/root/humanBones/SC-GS",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: GS",//环境是名字直接自己执行的
+            "type": "debugpy",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "args": [
+               "-s",
+               "tandt/train",
+               "--eval"
+            ],            
+            "cwd": "/root/humanBones/gaussian-splatting",
+            "justMyCode": true
+        }
+    ]
+}
