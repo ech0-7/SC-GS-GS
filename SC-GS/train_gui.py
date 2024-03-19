@@ -1165,14 +1165,14 @@ class GUI:
                 self.gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
                 #todo只有这里的 node 而不是作为gaussian的densify
                 if self.iteration > self.opt.node_densify_from_iter and self.iteration % self.opt.node_densification_interval == 0 and self.iteration < self.opt.node_densify_until_iter and self.iteration > self.opt.warm_up or self.iteration == self.opt.node_force_densify_prune_step:
-                    # Nodes densify 1k 5000一次 最多2w5 10000必须
-                    self.deform.densify(max_grad=self.opt.densify_grad_threshold, x=self.gaussians.get_xyz, x_grad=self.gaussians.xyz_gradient_accum / self.gaussians.denom, feature=self.gaussians.feature, force_dp=(self.iteration == self.opt.node_force_densify_prune_step))
+                    # Nodes densify 1k 5000一次 最多2w5 10000必须   x为6.5w  梯度为(x,1) feature是hyper的8
+                     self.deform.densify(max_grad=self.opt.densify_grad_threshold, x=self.gaussians.get_xyz, x_grad=self.gaussians.xyz_gradient_accum / self.gaussians.denom, feature=self.gaussians.feature, force_dp=(self.iteration == self.opt.node_force_densify_prune_step))
                 #500开始 100一次 gaussians
                 if self.iteration > self.opt.densify_from_iter and self.iteration % self.opt.densification_interval == 0:
-                    size_threshold = 20 if self.iteration > self.opt.opacity_reset_interval else None
-                    self.gaussians.densify_and_prune(self.opt.densify_grad_threshold, 0.005, self.scene.cameras_extent, size_threshold)
+                    size_threshold = 20 if self.iteration > self.opt.opacity_reset_interval else None#3000重置后
+                    self.gaussians.densify_and_prune(self.opt.densify_grad_threshold, 0.005, self.scene.cameras_extent, size_threshold)#0.0002的梯度阈值 20的屏幕大小
 
-                if self.iteration % self.opt.opacity_reset_interval == 0 or (
+                if self.iteration % self.opt.opacity_reset_interval == 0 or (#3k重置后
                         self.dataset.white_background and self.iteration == self.opt.densify_from_iter):
                     self.gaussians.reset_opacity()
 

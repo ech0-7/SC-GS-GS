@@ -941,13 +941,13 @@ class ControlNodeWarp(nn.Module):
                 if feature is not None: # Freeze the first 3 coordinates for deformation mlp input
                     nodes = torch.cat([nodes[..., :3].detach(), self.nodes[..., 3:]], dim=-1) 
                 nn_dist, nn_idxs, _ = pytorch3d.ops.knn_points(x[None], nodes[None], None, None, K=K)  # N, K
-                nn_dist, nn_idxs = nn_dist[0], nn_idxs[0]  # N, K=3
+                nn_dist, nn_idxs = nn_dist[0], nn_idxs[0]  # N, K=3 最近的3个node的id 然后查找他们对应的半径
                 if gs_kernel:#yes 就是权重公式
-                    nn_radius = self.node_radius[nn_idxs]  # N, K
+                    nn_radius = self.node_radius[nn_idxs]  # N, K#(10w,3)
                     nn_weight = torch.exp(- nn_dist / (2 * nn_radius ** 2))  # N, K#(10w,3)
-                    if self.with_node_weight:#yes
-                        nn_node_weight = self.node_weight[nn_idxs]#(512,1)[(10w,3)的idx]->(10w,3,1)
-                        nn_weight = nn_weight * nn_node_weight[..., 0]
+                    if self.with_node_weight:#yes这里是node本身的权重 可学习参数通过property调用
+                        nn_node_weight = self.node_weight[nn_idxs]#(512,1)[(10w,3)的idx]->(10w,3,1) 
+                        nn_weight = nn_weight * nn_node_weight[..., 0]#
                     nn_weight = nn_weight + 1e-7
                     nn_weight = nn_weight / nn_weight.sum(dim=-1, keepdim=True)  # N, K
                     if self.cached_nn_weight:#nop
@@ -1264,21 +1264,21 @@ class ControlNodeWarp(nn.Module):
         if self.hyper_dim > 0:
             x = torch.cat([x, feature[..., :self.hyper_dim]], dim=-1)
         K = self.K if K is None else K
-        nn_weight, _, nn_idxs = self.cal_nn_weight(x=x[..., :3], K=K, feature=feature)  # N, K
-        node_importance = torch.zeros_like(self.nodes[:, 0]).view(-1)
+        nn_weight, _, nn_idxs = self.cal_nn_weight(x=x[..., :3], K=K, feature=feature)  # N, K 10w,3权重和为1
+        node_importance = torch.zeros_like(self.nodes[:, 0]).view(-1)#(512)
         node_edge_count = torch.zeros_like(self.nodes[:, 0]).view(-1)
-        avg_affected_x = torch.zeros_like(self.nodes)
-        weights = torch.ones_like(x[:, 0]) if weights is None else weights
-        node_importance.index_add_(dim=0, index=nn_idxs.view(-1), source=(nn_weight * weights[:, None]).view(-1))
-        node_edge_count.index_add_(dim=0, index=nn_idxs.view(-1), source=nn_weight.view(-1))
+        avg_affected_x = torch.zeros_like(self.nodes)#(512,11)   对于这512个点不断的做idx上的add操作 直接修改
+        weights = torch.ones_like(x[:, 0]) if weights is None else weights #10w点的梯度就是梯度 nnweight是3个node所有相关gs中的占比权重
+        node_importance.index_add_(dim=0, index=nn_idxs.view(-1), source=(nn_weight * weights[:, None]).view(-1))#梯度sum 1.5
+        node_edge_count.index_add_(dim=0, index=nn_idxs.view(-1), source=nn_weight.view(-1))#源张量添加到目标张量中 第一维度上添加 
         avg_affected_x.index_add_(dim=0, index=nn_idxs.view(-1), source=((nn_weight * weights[:, None]).view(-1, 1) * x[:, None].expand(*nn_weight.shape, x.shape[-1]).reshape(-1, x.shape[-1])))
-        avg_affected_x = avg_affected_x / node_importance[:, None]
+        avg_affected_x = avg_affected_x / node_importance[:, None]#加权后的x上面的那行是(32w,1)*点的xyz(32w,11) 
         node_importance = node_importance / (node_edge_count + 1e-7)
-        return node_importance, avg_affected_x, node_edge_count
+        return node_importance, avg_affected_x, node_edge_count#都是512的
     
     @torch.no_grad()
     def densify(self, max_grad, optimizer, x:torch.Tensor, x_grad: torch.Tensor, feature=None, K=None, use_gaussians_grad=False, force_dp=False):
-        if not self.enable_dp and not force_dp:
+        if not self.enable_dp and not force_dp:#不允许的一般 除非强制1W的时候
             return
         if not self.inited:
             print('No need to densify nodes before initialization.')
@@ -1289,13 +1289,13 @@ class ControlNodeWarp(nn.Module):
 
         x_grad[x_grad.isnan()] = 0.
         K = self.K if K is None else K
-        weights = x_grad.norm(dim=-1)
+        weights = x_grad.norm(dim=-1)#(10w,1)
         
-        # Calculate the avg importance and coor
+        # Calculate the avg importance and coor   #(10w,3) (10w,1) (10w,8)
         node_avg_xgradnorm, node_avg_x, node_edge_count = self.cal_node_importance(x=x, K=K, weights=weights, feature=feature)
-        
+        #node importance&被位置影响的node importance 总点数10w
         # Picking pts to densify
-        if use_gaussians_grad or not hasattr(self, 'nodes_accumulated_grad'):
+        if use_gaussians_grad or not hasattr(self, 'nodes_accumulated_grad'):#没有node的梯度 后面都是true也就是  不是nan的有效个数 512
             selected_pts_mask = torch.logical_and(node_avg_xgradnorm > max_grad, node_avg_x.isnan().logical_not().all(dim=-1))
         else:
             avg_nodes_norm = self.nodes_accumulated_grad / self.denom
@@ -1306,12 +1306,12 @@ class ControlNodeWarp(nn.Module):
         # For visualization
         self.nodes_color_visualization = torch.ones_like(self.nodes[..., :3])
 
-        pruned_pts_mask = node_edge_count == 0
-        if selected_pts_mask.sum() > 0 or pruned_pts_mask.sum() > 0:
+        pruned_pts_mask = node_edge_count == 0 #0
+        if selected_pts_mask.sum() > 0 or pruned_pts_mask.sum() > 0:#00
             print(f'Add {selected_pts_mask.sum()} nodes and prune {pruned_pts_mask.sum()} nodes. ', end='')
         else:
             return
-
+        #skip 就是node作为gaussian来生成
         # Densify
         if selected_pts_mask.sum() > 0:
             new_nodes = node_avg_x[selected_pts_mask]

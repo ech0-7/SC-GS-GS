@@ -63,7 +63,7 @@ class DeformModel:
                 return lr
     
     def densify(self, max_grad, x, x_grad, **kwargs):
-        if self.name == 'node':
+        if self.name == 'node':#0.0002
             self.deform.densify(max_grad=max_grad, optimizer=self.optimizer, x=x, x_grad=x_grad, **kwargs)
         else:
             return
